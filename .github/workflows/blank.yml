@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build KCho Chat APK
+    name: Build KCho Chat Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -20,7 +20,11 @@ jobs:
         run: |
           mkdir -p extracted
 
-          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*FIXED*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+          fi
 
           if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: ZIP file not found!"
@@ -28,7 +32,7 @@ jobs:
             exit 1
           fi
 
-          echo "ZIP found: $ZIP_FILE"
+          echo "ZIP: $ZIP_FILE"
           unzip -o "$ZIP_FILE" -d extracted
 
       - name: Find Flutter Project
@@ -36,7 +40,7 @@ jobs:
           PUBSPEC=$(find extracted -name pubspec.yaml -print -quit)
 
           if [ -z "$PUBSPEC" ]; then
-            echo "ERROR: pubspec.yaml not found inside ZIP!"
+            echo "ERROR: pubspec.yaml not found!"
             exit 1
           fi
 
@@ -57,8 +61,17 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Check Flutter
+      - name: Flutter Doctor
         run: flutter doctor -v
+
+      - name: Verify Gradle Configuration
+        run: |
+          echo "Gradle wrapper:"
+          cat android/gradle/wrapper/gradle-wrapper.properties
+
+          echo "Android build configuration:"
+          cat android/build.gradle
+        working-directory: ${{ env.PROJECT_DIR }}
 
       - name: Install Dependencies
         run: flutter pub get
@@ -67,7 +80,6 @@ jobs:
       - name: Build Release APK
         run: |
           flutter build apk --release \
-            --android-skip-build-dependency-validation \
             --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
             --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
         working-directory: ${{ env.PROJECT_DIR }}
