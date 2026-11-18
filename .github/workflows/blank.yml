@@ -9,19 +9,23 @@ on:
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Download repository files
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Extract ZIP automatically
+      # 2. Find and extract ZIP
+      - name: Extract ZIP
         run: |
           mkdir -p extracted
+
           ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: No ZIP file found in repository root"
+            echo "ERROR: ZIP file not found!"
             ls -la
             exit 1
           fi
@@ -29,43 +33,63 @@ jobs:
           echo "Found ZIP: $ZIP_FILE"
           unzip -o "$ZIP_FILE" -d extracted
 
+      # 3. Find Flutter project
       - name: Find Flutter Project
         run: |
           PUBSPEC=$(find extracted -name pubspec.yaml -print -quit)
 
           if [ -z "$PUBSPEC" ]; then
-            echo "ERROR: pubspec.yaml not found inside ZIP"
+            echo "ERROR: pubspec.yaml not found!"
             find extracted -maxdepth 4 -type f
             exit 1
           fi
 
-          echo "PROJECT_DIR=$(dirname "$PUBSPEC")" >> "$GITHUB_ENV"
+          PROJECT_DIR=$(dirname "$PUBSPEC")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
+          echo "Flutter project found: $PROJECT_DIR"
+
+      # 4. Setup Java
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
+      # 5. Setup Flutter
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Install Dependencies
+      # 6. Upgrade Gradle Wrapper
+      - name: Upgrade Gradle
+        run: |
+          sed -i 's#distributionUrl=.*#distributionUrl=https\://services.gradle.org/distributions/gradle-9.3.1-all.zip#' android/gradle/wrapper/gradle-wrapper.properties
+
+          echo "Updated Gradle version:"
+          cat android/gradle/wrapper/gradle-wrapper.properties
+        working-directory: ${{ env.PROJECT_DIR }}
+
+      # 7. Install Flutter dependencies
+      - name: Flutter Pub Get
         run: flutter pub get
         working-directory: ${{ env.PROJECT_DIR }}
 
-      - name: Build APK
+      # 8. Build APK
+      - name: Build Release APK
         run: |
           flutter build apk --release \
-            --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
-            --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+            --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
+            --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
         working-directory: ${{ env.PROJECT_DIR }}
 
+      # 9. Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: KCho-Chat-APK
           path: ${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
