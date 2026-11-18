@@ -13,19 +13,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Download repository files
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Find and extract ZIP
-      - name: Extract ZIP
+      - name: Find and Extract ZIP
         run: |
           mkdir -p extracted
 
           ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP file not found!"
+            echo "ERROR: ZIP file not found"
             ls -la
             exit 1
           fi
@@ -33,51 +31,70 @@ jobs:
           echo "Found ZIP: $ZIP_FILE"
           unzip -o "$ZIP_FILE" -d extracted
 
-      # 3. Find Flutter project
       - name: Find Flutter Project
         run: |
           PUBSPEC=$(find extracted -name pubspec.yaml -print -quit)
 
           if [ -z "$PUBSPEC" ]; then
-            echo "ERROR: pubspec.yaml not found!"
-            find extracted -maxdepth 4 -type f
+            echo "ERROR: pubspec.yaml not found"
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$PUBSPEC")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-          echo "Flutter project found: $PROJECT_DIR"
+          echo "Project directory: $PROJECT_DIR"
 
-      # 4. Setup Java
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      # 5. Setup Flutter
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      # 6. Upgrade Gradle Wrapper
-      - name: Upgrade Gradle
+      - name: Fix Gradle Version
         run: |
-          sed -i 's#distributionUrl=.*#distributionUrl=https\://services.gradle.org/distributions/gradle-9.3.1-all.zip#' android/gradle/wrapper/gradle-wrapper.properties
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
 
-          echo "Updated Gradle version:"
-          cat android/gradle/wrapper/gradle-wrapper.properties
+          file = Path("android/gradle/wrapper/gradle-wrapper.properties")
+          content = file.read_text()
+
+          updated, count = re.subn(
+              r"(?m)^distributionUrl=.*$",
+              r"distributionUrl=https\\://services.gradle.org/distributions/gradle-9.3.1-all.zip",
+              content
+          )
+
+          if count == 0:
+              raise SystemExit("ERROR: distributionUrl not found")
+
+          file.write_text(updated)
+          print(file.read_text())
+          PY
+
+          echo "Checking Gradle version..."
+          grep "distributionUrl" android/gradle/wrapper/gradle-wrapper.properties
+
         working-directory: ${{ env.PROJECT_DIR }}
 
-      # 7. Install Flutter dependencies
-      - name: Flutter Pub Get
+      - name: Install Dependencies
         run: flutter pub get
         working-directory: ${{ env.PROJECT_DIR }}
 
-      # 8. Build APK
+      - name: Verify Gradle
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew --version
+        working-directory: ${{ env.PROJECT_DIR }}
+
       - name: Build Release APK
         run: |
           flutter build apk --release \
@@ -85,7 +102,6 @@ jobs:
             --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
         working-directory: ${{ env.PROJECT_DIR }}
 
-      # 9. Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
