@@ -1,4 +1,20 @@
 
+name: Build KCho Chat APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
       - name: Extract ZIP automatically
         run: |
           mkdir -p extracted
@@ -6,7 +22,6 @@
 
           if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: No ZIP file found in repository root"
-            echo "Repository files:"
             ls -la
             exit 1
           fi
@@ -20,8 +35,37 @@
 
           if [ -z "$PUBSPEC" ]; then
             echo "ERROR: pubspec.yaml not found inside ZIP"
-            find extracted -maxdepth 3 -type f
+            find extracted -maxdepth 4 -type f
             exit 1
           fi
 
-          echo "PROJECT_DIR=$(dirname "$PUBSPEC")" >> $GITHUB_ENV
+          echo "PROJECT_DIR=$(dirname "$PUBSPEC")" >> "$GITHUB_ENV"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+        working-directory: ${{ env.PROJECT_DIR }}
+
+      - name: Build APK
+        run: |
+          flutter build apk --release \
+            --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
+            --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+        working-directory: ${{ env.PROJECT_DIR }}
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: KCho-Chat-APK
+          path: ${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk
