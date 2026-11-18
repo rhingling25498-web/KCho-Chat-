@@ -9,12 +9,24 @@ on:
 
 jobs:
   build:
-    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Extract ZIP
+        run: |
+          unzip -o KCho-Chat-Project.zip -d extracted
+
+      - name: Find Flutter Project
+        run: |
+          PUBSPEC=$(find extracted -name pubspec.yaml -print -quit)
+          if [ -z "$PUBSPEC" ]; then
+            echo "pubspec.yaml not found in ZIP"
+            exit 1
+          fi
+          echo "PROJECT_DIR=$(dirname "$PUBSPEC")" >> $GITHUB_ENV
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -28,21 +40,19 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Flutter Doctor
-        run: flutter doctor -v
-
       - name: Install Dependencies
         run: flutter pub get
+        working-directory: ${{ env.PROJECT_DIR }}
 
-      - name: Build Release APK
+      - name: Build APK
         run: |
           flutter build apk --release \
             --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+        working-directory: ${{ env.PROJECT_DIR }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: KCho-Chat-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 30
+          path: ${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk
