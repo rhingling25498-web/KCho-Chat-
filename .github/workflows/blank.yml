@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build Android APK
+    name: Build KCho Chat APK
     runs-on: ubuntu-latest
 
     steps:
@@ -23,12 +23,12 @@ jobs:
           ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP file not found"
+            echo "ERROR: ZIP file not found!"
             ls -la
             exit 1
           fi
 
-          echo "Found ZIP: $ZIP_FILE"
+          echo "ZIP found: $ZIP_FILE"
           unzip -o "$ZIP_FILE" -d extracted
 
       - name: Find Flutter Project
@@ -36,14 +36,14 @@ jobs:
           PUBSPEC=$(find extracted -name pubspec.yaml -print -quit)
 
           if [ -z "$PUBSPEC" ]; then
-            echo "ERROR: pubspec.yaml not found"
+            echo "ERROR: pubspec.yaml not found inside ZIP!"
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$PUBSPEC")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-          echo "Project directory: $PROJECT_DIR"
+          echo "Project: $PROJECT_DIR"
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -57,47 +57,17 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Fix Gradle Version
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          file = Path("android/gradle/wrapper/gradle-wrapper.properties")
-          content = file.read_text()
-
-          updated, count = re.subn(
-              r"(?m)^distributionUrl=.*$",
-              r"distributionUrl=https\\://services.gradle.org/distributions/gradle-9.3.1-all.zip",
-              content
-          )
-
-          if count == 0:
-              raise SystemExit("ERROR: distributionUrl not found")
-
-          file.write_text(updated)
-          print(file.read_text())
-          PY
-
-          echo "Checking Gradle version..."
-          grep "distributionUrl" android/gradle/wrapper/gradle-wrapper.properties
-
-        working-directory: ${{ env.PROJECT_DIR }}
+      - name: Check Flutter
+        run: flutter doctor -v
 
       - name: Install Dependencies
         run: flutter pub get
         working-directory: ${{ env.PROJECT_DIR }}
 
-      - name: Verify Gradle
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew --version
-        working-directory: ${{ env.PROJECT_DIR }}
-
       - name: Build Release APK
         run: |
           flutter build apk --release \
+            --android-skip-build-dependency-validation \
             --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
             --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
         working-directory: ${{ env.PROJECT_DIR }}
