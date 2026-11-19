@@ -17,25 +17,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Find and Extract ZIP
+        shell: bash
         run: |
           mkdir -p extracted
 
-          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*FIXED*.zip" | head -n 1)
+          ZIP_FILE="KCho-Chat-APK-Build-Package-FIXED-minSdk24.zip"
 
-          if [ -z "$ZIP_FILE" ]; then
-            ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
-          fi
-
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP file not found!"
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERROR: $ZIP_FILE not found!"
             ls -la
             exit 1
           fi
 
-          echo "ZIP: $ZIP_FILE"
           unzip -o "$ZIP_FILE" -d extracted
 
       - name: Find Flutter Project
+        shell: bash
         run: |
           PUBSPEC=$(find extracted -name pubspec.yaml -print -quit)
 
@@ -47,7 +44,7 @@ jobs:
           PROJECT_DIR=$(dirname "$PUBSPEC")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-          echo "Project: $PROJECT_DIR"
+          echo "Flutter project: $PROJECT_DIR"
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -64,17 +61,13 @@ jobs:
       - name: Flutter Doctor
         run: flutter doctor -v
 
-      - name: Verify Gradle Configuration
-        run: |
-          echo "Gradle wrapper:"
-          cat android/gradle/wrapper/gradle-wrapper.properties
-
-          echo "Android build configuration:"
-          cat android/build.gradle
-        working-directory: ${{ env.PROJECT_DIR }}
-
       - name: Install Dependencies
         run: flutter pub get
+        working-directory: ${{ env.PROJECT_DIR }}
+
+      - name: Check Android Min SDK
+        run: |
+          grep -n -E 'minSdk|minSdkVersion' android/app/build.gradle
         working-directory: ${{ env.PROJECT_DIR }}
 
       - name: Build Release APK
