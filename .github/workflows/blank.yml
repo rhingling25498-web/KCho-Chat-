@@ -1,77 +1,86 @@
-
 name: Build KCho Chat APK
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [main, master]
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    name: Build KCho Chat Android APK
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Find and Extract Flutter ZIP
+      - name: Find Flutter project (root folder or uploaded ZIP)
         shell: bash
         run: |
-          mkdir -p extracted
-          ZIP_FILE=$(find . -maxdepth 1 -type f -name 'KCho-Chat-APK-Build-Package-FIXED-minSdk24*.zip' -print -quit)
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: KCho Chat ZIP was not found in repository root."
-            ls -la
-            exit 1
+          set -euo pipefail
+          if [ -f "$GITHUB_WORKSPACE/pubspec.yaml" ]; then
+            PROJECT_DIR="$GITHUB_WORKSPACE"
+          else
+            mkdir -p "$GITHUB_WORKSPACE/_unpacked_project"
+            ZIP_FILE="$(find "$GITHUB_WORKSPACE" -maxdepth 2 -type f -iname '*.zip' -not -path '*/.git/*' | head -n 1 || true)"
+            if [ -z "$ZIP_FILE" ]; then
+              echo "No pubspec.yaml at repository root and no project ZIP was found."
+              exit 1
+            fi
+            unzip -oq "$ZIP_FILE" -d "$GITHUB_WORKSPACE/_unpacked_project"
+            PUBSPEC="$(find "$GITHUB_WORKSPACE/_unpacked_project" -type f -name pubspec.yaml | head -n 1 || true)"
+            if [ -z "$PUBSPEC" ]; then
+              echo "The uploaded ZIP does not contain pubspec.yaml."
+              exit 1
+            fi
+            PROJECT_DIR="$(dirname "$PUBSPEC")"
           fi
-          echo "Using $ZIP_FILE"
-          unzip -o "$ZIP_FILE" -d extracted
-
-      - name: Locate Flutter Project
-        shell: bash
-        run: |
-          PUBSPEC=$(find extracted -name pubspec.yaml -print -quit)
-          if [ -z "$PUBSPEC" ]; then
-            echo "ERROR: pubspec.yaml was not found inside the ZIP."
-            exit 1
-          fi
-          PROJECT_DIR=$(dirname "$PUBSPEC")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Flutter project: $PROJECT_DIR"
+          echo "Using Flutter project: $PROJECT_DIR"
 
-      - name: Set Up Java
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set Up Flutter
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Install Flutter Dependencies
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: flutter pub get
+      - name: Restore Gradle wrapper files if missing
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR/android"
+          chmod +x gradlew
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            curl -fsSL "https://raw.githubusercontent.com/gradle/gradle/v9.3.1/gradle/wrapper/gradle-wrapper.jar" -o gradle/wrapper/gradle-wrapper.jar
+          fi
 
-      - name: Build Release APK
-        working-directory: ${{ env.PROJECT_DIR }}
+      - name: Install dependencies
+        run: cd "$PROJECT_DIR" && flutter pub get
+
+      - name: Build release APK
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          flutter build apk --release \
-            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+          set -euo pipefail
+          test -n "$SUPABASE_URL" || (echo 'Missing SUPABASE_URL secret' && exit 1)
+          test -n "$SUPABASE_ANON_KEY" || (echo 'Missing SUPABASE_ANON_KEY secret' && exit 1)
+          cd "$PROJECT_DIR"
+          flutter build apk --release \\
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \\
             --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
 
-      - name: Upload APK Artifact
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: KCho-Chat-APK
           path: ${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 30
-
